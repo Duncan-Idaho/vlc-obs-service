@@ -9,5 +9,6 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="7.0.1" />
+    <PackageReference Include="obs-websocket-dotnet" Version="5.0.0.3" />
   </ItemGroup>
 </Project>
