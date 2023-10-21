@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Net.Sockets;
 using System.Text;
 using VlcObsService.Vlc.Models;
 
@@ -11,11 +12,16 @@ public class VlcService
 {
     private readonly IOptionsMonitor<VlcServiceOptions> optionsMonitor;
     private readonly HttpClient client;
+    private readonly ILogger<VlcService> logger;
 
-    public VlcService(IOptionsMonitor<VlcServiceOptions> optionsMonitor, HttpClient client)
+    public VlcService(
+        IOptionsMonitor<VlcServiceOptions> optionsMonitor, 
+        HttpClient client, 
+        ILogger<VlcService> logger)
     {
         this.optionsMonitor = optionsMonitor;
         this.client = client;
+        this.logger = logger;
         SetupClient(optionsMonitor);
     }
 
@@ -42,11 +48,34 @@ public class VlcService
     public Task<Status> GetStatus(CancellationToken cancellationToken = default)
         => GetStatus(string.Empty, cancellationToken);
 
+    private async Task<HttpResponseMessage> GetWithRetry(string uri, CancellationToken cancellationToken = default)
+    {
+        // VLC tends to reset idle connections. Targetted retries won't hurt.
+        const int retryCount = 3;
+        for (int currentRetry = 1; currentRetry < retryCount; currentRetry++)
+        {
+            try
+            {
+                return await client.GetAsync(uri, cancellationToken);
+            }
+            catch (HttpRequestException exception) 
+            when (exception.InnerException is IOException
+            {
+                InnerException: SocketException { SocketErrorCode: SocketError.ConnectionReset }
+            })
+            {
+                if (retryCount > 1)
+                    logger.LogWarning("More than 1 Connection Reset while sending {uri} to VLC. Retry count {currentRetry}", uri, currentRetry);
+            }
+        }
+        return await client.GetAsync(uri, cancellationToken);
+    }
+
     public async Task<Status> GetStatus(
         string queryString,
         CancellationToken cancellationToken = default)
     {
-        var response = await client.GetAsync("/requests/status.json" + queryString, cancellationToken);
+        using var response = await GetWithRetry("/requests/status.json" + queryString, cancellationToken);
         response.EnsureSuccessStatusCode();
 
         return (await response.Content.ReadFromJsonAsync<Status>(cancellationToken: cancellationToken))
@@ -90,7 +119,7 @@ public class VlcService
 
     public async Task<BrowseResult> Browse(CancellationToken cancellationToken = default)
     {
-        var response = await client.GetAsync(
+        using var response = await GetWithRetry(
             "/requests/browse.json?uri=" + optionsMonitor.CurrentValue.FolderUri, 
             cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -101,7 +130,7 @@ public class VlcService
 
     public async Task<PlaylistNode> GetPlaylist(CancellationToken cancellationToken = default)
     {
-        var response = await client.GetAsync("/requests/playlist.json", cancellationToken);
+        using var response = await GetWithRetry("/requests/playlist.json", cancellationToken);
         response.EnsureSuccessStatusCode();
 
         return (await response.Content.ReadFromJsonAsync<PlaylistNode>(cancellationToken: cancellationToken))
