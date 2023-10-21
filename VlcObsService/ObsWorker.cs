@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using OBSWebsocketDotNet;
 using VlcObsService.Vlc;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace VlcObsService
 {
@@ -47,7 +48,7 @@ namespace VlcObsService
         private void Obs_Disconnected(object? sender, OBSWebsocketDotNet.Communication.ObsDisconnectionInfo e)
         {
             _logger.LogInformation("Disconnected");
-            _ = vlcWorker.EnsureClosedAsync();
+            StartAndLogFailure(() => vlcWorker.EnsureClosedAsync());
         }
 
         private void Obs_Connected(object? sender, EventArgs e)
@@ -61,11 +62,27 @@ namespace VlcObsService
             _logger.LogInformation("Handling scene: {scene}", scene);
             if (optionsMonitor.CurrentValue.ScenesWithMusic.Contains(scene))
             {
-                _ = vlcWorker.PlayAsync();
+                StartAndLogFailure(() => vlcWorker.PlayAsync());
             }
             else
             {
-                _ = vlcWorker.StopAsync();
+                StartAndLogFailure(() => vlcWorker.StopAsync());
+            }
+        }
+
+        public async void StartAndLogFailure(Func<Task> task)
+        {
+            try
+            {
+                await task();
+            }
+            catch (TaskCanceledException)
+            {
+                _logger.LogInformation("Cancelled VLC request");
+            }
+            catch (Exception error)
+            {
+                _logger.LogError(error, "Error in VLC request");
             }
         }
     }
