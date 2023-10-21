@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Options;
 using OBSWebsocketDotNet;
+using VlcObsService.Vlc;
 
 namespace VlcObsService
 {
@@ -7,14 +8,19 @@ namespace VlcObsService
     {
         private readonly ILogger<ObsWorker> _logger;
         private readonly OBSWebsocket obs = new ();
+        private readonly VlcInstanceManager vlcWorker;
         private readonly IOptionsMonitor<ObsWorkerOptions> optionsMonitor;
 
-        public ObsWorker(ILogger<ObsWorker> logger, IOptionsMonitor<ObsWorkerOptions> optionsMonitor)
+        public ObsWorker(
+            ILogger<ObsWorker> logger, 
+            VlcInstanceManager vlcWorker,
+            IOptionsMonitor<ObsWorkerOptions> optionsMonitor)
         {
             _logger = logger;
             obs.Connected += Obs_Connected;
             obs.Disconnected += Obs_Disconnected;
             obs.CurrentProgramSceneChanged += Obs_CurrentProgramSceneChanged;
+            this.vlcWorker = vlcWorker;
             this.optionsMonitor = optionsMonitor;
 
         }
@@ -41,6 +47,19 @@ namespace VlcObsService
         private void Obs_Disconnected(object? sender, OBSWebsocketDotNet.Communication.ObsDisconnectionInfo e)
         {
             _logger.LogInformation("Disconnected");
+            _ = StopAndCloseAsync();
+        }
+
+        private async Task StopAndCloseAsync()
+        {
+            try
+            {
+                await vlcWorker.StopAsync();
+            }
+            finally
+            {
+                await vlcWorker.EnsureClosedAsync();
+            }
         }
 
         private void Obs_Connected(object? sender, EventArgs e)
@@ -52,7 +71,14 @@ namespace VlcObsService
         private void HandleScene(string scene)
         {
             _logger.LogInformation("Handling scene: {scene}", scene);
-
+            if (optionsMonitor.CurrentValue.ScenesWithMusic.Contains(scene))
+            {
+                _ = vlcWorker.PlayAsync();
+            }
+            else
+            {
+                _ = vlcWorker.StopAsync();
+            }
         }
     }
 }
