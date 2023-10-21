@@ -102,8 +102,8 @@ public class VlcInstance : IDisposable
             return;
 
         await FadeTo(status, 0, 256, 2000, cts.Token);
-        await service.Stop(cts.Token);
         await service.Next(cts.Token);
+        await service.Stop(cts.Token);
     }
 
     private async Task<Status> FadeTo(Status status, int targetVolume, int amplitude, int duration, CancellationToken token)
