@@ -47,19 +47,7 @@ namespace VlcObsService
         private void Obs_Disconnected(object? sender, OBSWebsocketDotNet.Communication.ObsDisconnectionInfo e)
         {
             _logger.LogInformation("Disconnected");
-            _ = StopAndCloseAsync();
-        }
-
-        private async Task StopAndCloseAsync()
-        {
-            try
-            {
-                await vlcWorker.StopAsync();
-            }
-            finally
-            {
-                await vlcWorker.EnsureClosedAsync();
-            }
+            _ = vlcWorker.EnsureClosedAsync();
         }
 
         private void Obs_Connected(object? sender, EventArgs e)

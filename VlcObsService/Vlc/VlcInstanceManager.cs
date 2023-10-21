@@ -3,7 +3,7 @@
 public class VlcInstanceManager: IAsyncDisposable
 {
     private readonly VlcService service;
-    private Task<VlcInstance>? instance;
+    private Task<VlcInstance>? instanceTask;
 
     public VlcInstanceManager(VlcService service)
     {
@@ -12,9 +12,9 @@ public class VlcInstanceManager: IAsyncDisposable
 
     public Task<VlcInstance> EnsureStartedAsync()
     {
-        if (instance == null || instance.IsFaulted || instance.IsCanceled)
-            instance = StartAsync();
-        return instance;
+        if (instanceTask == null || instanceTask.IsFaulted || instanceTask.IsCanceled)
+            instanceTask = StartAsync();
+        return instanceTask;
     }
 
     private async Task<VlcInstance> StartAsync()
@@ -26,11 +26,25 @@ public class VlcInstanceManager: IAsyncDisposable
 
     public async Task EnsureClosedAsync()
     {
-        var oldInstanceTask = Interlocked.Exchange(ref instance, null);
-        if (oldInstanceTask == null)
+        try
+        {
+            await StopIfPossibleAsync();
+        }
+        finally
+        {
+            var oldInstanceTask = Interlocked.Exchange(ref instanceTask, null);
+            if (oldInstanceTask != null)
+                (await oldInstanceTask).Dispose();
+        }
+    }
+
+    public async Task StopIfPossibleAsync()
+    {
+        var instanceTask = this.instanceTask;
+        if (instanceTask is null)
             return;
 
-        (await oldInstanceTask).Dispose();
+        await (await instanceTask).StopAsync();
     }
 
     public async Task PlayAsync()
