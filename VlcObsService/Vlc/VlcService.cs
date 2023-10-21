@@ -19,7 +19,7 @@ public class VlcService
         SetupClient(optionsMonitor);
     }
 
-    public async Task<Process?> Start()
+    public Process? Start()
     {
         var options = optionsMonitor.CurrentValue;
         var process = Process.Start(new ProcessStartInfo()
@@ -27,7 +27,6 @@ public class VlcService
             FileName = options.Path,
             Arguments = $"--extraintf=http --http-host {options.Host} --http-port {options.Port}"
         });
-        await Task.Delay(200);
         return process;
     }
 

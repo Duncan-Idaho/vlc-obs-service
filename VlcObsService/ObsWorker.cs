@@ -48,7 +48,7 @@ namespace VlcObsService
         private void Obs_Disconnected(object? sender, OBSWebsocketDotNet.Communication.ObsDisconnectionInfo e)
         {
             _logger.LogInformation("Disconnected");
-            StartAndLogFailure(() => vlcWorker.EnsureClosedAsync());
+            StartAndLogFailure(() => vlcWorker.EnsureClosedAsync(), "closing");
         }
 
         private void Obs_Connected(object? sender, EventArgs e)
@@ -59,18 +59,19 @@ namespace VlcObsService
 
         private void HandleScene(string scene)
         {
-            _logger.LogInformation("Handling scene: {scene}", scene);
             if (optionsMonitor.CurrentValue.ScenesWithMusic.Contains(scene))
             {
-                StartAndLogFailure(() => vlcWorker.PlayAsync());
+                _logger.LogInformation("Scene {scene} requires playing", scene);
+                StartAndLogFailure(() => vlcWorker.PlayAsync(), "playing");
             }
             else
             {
-                StartAndLogFailure(() => vlcWorker.StopAsync());
+                _logger.LogInformation("Scene {scene} requires stopping", scene);
+                StartAndLogFailure(() => vlcWorker.StopAsync(), "stopping");
             }
         }
 
-        public async void StartAndLogFailure(Func<Task> task)
+        public async void StartAndLogFailure(Func<Task> task, string request)
         {
             try
             {
@@ -78,11 +79,11 @@ namespace VlcObsService
             }
             catch (TaskCanceledException)
             {
-                _logger.LogInformation("Cancelled VLC request");
+                _logger.LogInformation("Cancelled VLC {request}", request);
             }
             catch (Exception error)
             {
-                _logger.LogError(error, "Error in VLC request");
+                _logger.LogError(error, "Error in VLC {request}", request);
             }
         }
     }

@@ -1,7 +1,5 @@
-using Microsoft.Extensions.DependencyInjection;
 using VlcObsService;
 using VlcObsService.Vlc;
-using VlcObsService.Vlc.Models;
 
 IHost host = Host.CreateDefaultBuilder(args)
     .ConfigureServices((context, services) =>

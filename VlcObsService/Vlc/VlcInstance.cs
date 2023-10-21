@@ -1,4 +1,5 @@
-﻿using System.Diagnostics;
+﻿using System.ComponentModel;
+using System.Diagnostics;
 using VlcObsService.Vlc.Models;
 
 namespace VlcObsService.Vlc;
@@ -7,6 +8,7 @@ public class VlcInstance : IDisposable
 {
     private readonly VlcService service;
     private readonly Process process;
+    private bool closeWhenDisposed = true;
 
     private CancellationTokenSource changesCts = new();
 
@@ -14,6 +16,14 @@ public class VlcInstance : IDisposable
     {
         this.service = service;
         this.process = process;
+
+        process.EnableRaisingEvents = true;
+        process.Exited += (_, _) =>
+        {
+            // If exited from the app, skip the close step
+            closeWhenDisposed = false;
+            Dispose();
+        };
     }
 
     public void Dispose()
@@ -26,7 +36,11 @@ public class VlcInstance : IDisposable
     {
         if (disposing)
         {
-            process.CloseMainWindow();
+            // Preferable to cancel all actions before hand to ensure no requests are sent
+            // if the application closes its server before sending Exited event
+            changesCts.Cancel();
+            if (closeWhenDisposed)
+                process.CloseMainWindow();
             process.Dispose();
         }
     }
