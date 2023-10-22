@@ -1,0 +1,7 @@
+﻿<WixLocalization xmlns="http://wixtoolset.org/schemas/v4/wxl" Culture="fr-FR">
+
+	<String Id="DowngradeError" Value="Une nouvelle version de [ProductName] est déjà installée." />
+	<String Id="ServiceName" Value="VLC - Obs Service" />
+	<String Id="ServiceDescription" Value="Démarre ou arrête VLC selon la scène sélectionnée dans OBS." />
+
+</WixLocalization>

@@ -1,0 +1,29 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <ComponentGroup Id="ServiceComponent" Directory="INSTALLFOLDER">
+		<Component Id="ServiceExecutable" Bitness="always64">
+
+			<File Id="VlcObsService.exe"
+				  Source="$(VlcObsService.TargetDir)publish\win-x64\VlcObsService.exe"
+				  KeyPath="true" />
+
+			<RemoveFile Id="ALLFILES" Name="*.*" On="both" />
+
+			<ServiceInstall Id="ServiceInstaller"
+							Type="ownProcess"
+							Name="!(bind.Property.ProductName)"
+							DisplayName="!(loc.ServiceName)"
+							Description="!(loc.ServiceDescription)"
+							Start="auto"
+							ErrorControl="normal" />
+
+			<ServiceControl Id="StartService"
+							Start="install"
+							Stop="both"
+							Remove="uninstall"
+							Name="!(bind.Property.ProductName)"
+							Wait="true" />
+		</Component>
+    </ComponentGroup>
+  </Fragment>
+</Wix>

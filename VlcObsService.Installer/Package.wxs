@@ -1,0 +1,14 @@
+﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package 
+	  Name="VlcObsService" 
+	  Manufacturer="Duncan Idaho" 
+	  Version="1.0.0.0" 
+	  UpgradeCode="810dcc07-eefa-48d2-b08a-469f5f9aaa49"
+	  Compressed="true">
+    <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeError)"  />
+
+    <Feature Id="ServiceFeature">
+      <ComponentGroupRef Id="ServiceComponent"/>
+    </Feature>
+  </Package>
+</Wix>
