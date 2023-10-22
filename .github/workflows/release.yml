@@ -55,4 +55,14 @@ jobs:
           path: VlcObsService.Installer/bin/Release/fr-FR/VlcObsService.Installer.msi
           if-no-files-found: error
 
+      - name: Create Release
+        uses: ncipollo/release-action@v1.13.0
+        with:
+          allowUpdates: true
+          removeArtifacts: true
+          replacesArtifacts: true
+          artifacts: VlcObsService.Installer/bin/Release/*/VlcObsService.Installer.msi
+          
+
+
 
