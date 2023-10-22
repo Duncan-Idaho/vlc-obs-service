@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Options;
 using OBSWebsocketDotNet;
 using VlcObsService.Vlc;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace VlcObsService
 {
@@ -28,15 +27,28 @@ namespace VlcObsService
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
         {
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                if (!obs.IsConnected)
+                while (!stoppingToken.IsCancellationRequested)
                 {
-                    var options = this.optionsMonitor.CurrentValue;
-                    obs.ConnectAsync(options.Url, options.Password);
-                    _logger.LogInformation("Waiting for OBS...");
+                    if (!obs.IsConnected)
+                    {
+                        var options = this.optionsMonitor.CurrentValue;
+                        obs.ConnectAsync(options.Url, options.Password);
+                        _logger.LogInformation("Waiting for OBS...");
+                    }
+                    await Task.Delay(obs.WSTimeout, stoppingToken);
+                    throw new InvalidOperationException();
                 }
-                await Task.Delay(obs.WSTimeout, stoppingToken);
+            }
+            catch (TaskCanceledException)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                Program.ExitCode = 1;
+                throw;
             }
         }
 
