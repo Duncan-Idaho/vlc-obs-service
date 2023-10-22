@@ -2,7 +2,9 @@
 
 public class ObsWorkerOptions
 {
-    public required string Url { get; init; }
-    public required string Password { get; init; }
-    public required HashSet<string> ScenesWithMusic { get; init; }
+    public string? Path { get; init; }
+    public string? Url { get; init; }
+    public string? Password { get; init; }
+    public HashSet<string>? ScenesWithMusic { get; init; }
+    public HashSet<string>? SourceKindsWithMusic { get; init; }
 }

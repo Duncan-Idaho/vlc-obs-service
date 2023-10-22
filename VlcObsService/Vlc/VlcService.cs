@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Net.Sockets;
+using System.Security.Cryptography;
 using System.Text;
 using VlcObsService.Vlc.Models;
 
@@ -13,6 +14,13 @@ public class VlcService
     private readonly IOptionsMonitor<VlcServiceOptions> optionsMonitor;
     private readonly HttpClient client;
     private readonly ILogger<VlcService> logger;
+    private readonly string defaultPassword = GeneratePassword(64);
+
+    private static string GeneratePassword(int length)
+    {
+        var bytes = RandomNumberGenerator.GetBytes(length);
+        return Convert.ToBase64String(bytes);
+    }
 
     public VlcService(
         IOptionsMonitor<VlcServiceOptions> optionsMonitor, 
@@ -30,8 +38,8 @@ public class VlcService
         var options = optionsMonitor.CurrentValue;
         var process = Process.Start(new ProcessStartInfo()
         {
-            FileName = options.Path,
-            Arguments = $"--extraintf=http --http-host {options.Host} --http-port {options.Port}"
+            FileName = Environment.ExpandEnvironmentVariables(options.Path),
+            Arguments = $"--extraintf=http --http-host {options.Host} --http-port {options.Port} --http-password \"{options.Password ?? defaultPassword}\""
         });
         return process;
     }
@@ -42,7 +50,7 @@ public class VlcService
         client.BaseAddress = new Uri($"http://{options.Host}:{options.Port}");
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Basic",
-            Convert.ToBase64String(Encoding.ASCII.GetBytes(":" + optionsMonitor.CurrentValue.Password)));
+            Convert.ToBase64String(Encoding.ASCII.GetBytes(":" + (optionsMonitor.CurrentValue.Password ?? defaultPassword))));
     }
 
     public Task<Status> GetStatus(CancellationToken cancellationToken = default)
