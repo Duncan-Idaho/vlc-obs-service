@@ -11,6 +11,8 @@ jobs:
     uses: ./.github/workflows/build_artifacts.yml
   release:
     needs: build
+    permissions:
+      contents: write
     runs-on: ubuntu-latest
     steps:
       - name: Download a single artifact
