@@ -58,8 +58,8 @@ public class VlcInstance : IDisposable
         if (status.Random == true)
             status = await service.ToggleRandom(cts.Token);
 
-        if (status.Repeat == false)
-            status = await service.ToggleRepeat(cts.Token);
+        if (status.Loop == false)
+            status = await service.ToggleLoop(cts.Token);
 
         if (status.State == "paused" || status.State == "stopped")
             status = await service.SetVolume(0, cts.Token);

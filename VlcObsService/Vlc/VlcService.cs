@@ -100,6 +100,9 @@ public class VlcService
     public Task<Status> ToggleRepeat(CancellationToken cancellationToken = default)
         => GetStatus("?command=pl_repeat", cancellationToken);
 
+    public Task<Status> ToggleLoop(CancellationToken cancellationToken = default)
+        => GetStatus("?command=pl_loop", cancellationToken);
+
     public Task<Status> Next(CancellationToken cancellationToken = default)
         => GetStatus("?command=pl_next", cancellationToken);
 

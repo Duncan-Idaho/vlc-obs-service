@@ -5,4 +5,5 @@ public record Status(
     int Volume,
     bool Random,
     string State,
-    bool Repeat);
+    bool Repeat,
+    bool Loop);
