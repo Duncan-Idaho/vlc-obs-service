@@ -40,7 +40,10 @@ public class VlcService
         var process = Process.Start(new ProcessStartInfo()
         {
             FileName = Environment.ExpandEnvironmentVariables(options.Path),
-            Arguments = $"--extraintf=http --http-host {options.Host} --http-port {options.Port} --http-password \"{options.Password ?? defaultPassword}\""
+            Arguments = $"--extraintf=http --http-host {options.Host} "
+                +$"--http-port {options.Port} "
+                +$"--http-password \"{options.Password ?? defaultPassword}\" "
+                +$"--qt-start-minimized"
         });
         return process;
     }
