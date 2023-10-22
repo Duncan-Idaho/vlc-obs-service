@@ -5,6 +5,8 @@
              Version="1.0.0.0" 
              UpgradeCode="810dcc07-eefa-48d2-b08a-469f5f9aaa49"
              Compressed="true">
+        <MediaTemplate EmbedCab="yes" />
+
         <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeError)"  />
 
         <Feature Id="ServiceFeature">
