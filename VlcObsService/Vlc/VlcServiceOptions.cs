@@ -6,5 +6,7 @@ public class VlcServiceOptions
     public required string Host { get; init; }
     public required int Port { get; init; }
     public string? Password { get; set; }
-    public required string FolderUri { get; init; }
+    public string? FolderUri { get; init; }
+    public List<string> Extensions { get; init; } = new();
+
 }

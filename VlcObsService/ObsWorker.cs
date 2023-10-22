@@ -1,9 +1,11 @@
 using Microsoft.Extensions.Options;
+using Newtonsoft.Json;
 using OBSWebsocketDotNet;
 using OBSWebsocketDotNet.Types;
 using OBSWebsocketDotNet.Types.Events;
 using VlcObsService.Obs;
 using VlcObsService.Vlc;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace VlcObsService
 {
@@ -17,7 +19,7 @@ namespace VlcObsService
         private readonly IOptionsMonitor<ObsApplicationWebSocketOptions> obsOptionsMonitor;
         private readonly IDisposable? optionsMonitorChangeToken;
 
-        private HashSet<string> scenesWithMusicSourceKinds = new();
+        private Dictionary<string, List<string>> playlistForScene = new();
 
         public ObsWorker(
             ILogger<ObsWorker> logger, 
@@ -51,25 +53,31 @@ namespace VlcObsService
 
         public void RefreshSceneItems()
         {
-            scenesWithMusicSourceKinds = optionsMonitor.CurrentValue.SourceKindsWithMusic switch
+            playlistForScene = optionsMonitor.CurrentValue.SourceKindsWithMusic switch
             {
                 { Count: > 0 } sourceKinds => GetMusicWitSourceKinds(sourceKinds),
-                _ => new HashSet<string>()
+                _ => new()
             };
 
             _logger.LogInformation("Scenes with music source kinds refreshed: {scenes}",
-                string.Join(',', scenesWithMusicSourceKinds));
+                string.Join(',', playlistForScene.Keys));
 
-            HashSet<string> GetMusicWitSourceKinds(HashSet<string> sourceKinds)
+            Dictionary<string, List<string>> GetMusicWitSourceKinds(HashSet<string> sourceKinds)
             {
                 return GetScenes()
                     .Select(scene => scene.Name)
-                    .Where(sceneName => IsSceneWithMusicSourceKinds(sceneName, sourceKinds))
-                    .ToHashSet();
+                    .ToDictionary(
+                        sceneName => sceneName,
+                        sceneName => GetPlaylistFromScenes(sceneName, sourceKinds));
             }
 
-            bool IsSceneWithMusicSourceKinds(string sceneName, HashSet<string> sourceKinds)
-                => GetSceneItems(sceneName).Any(item => sourceKinds.Contains(item.SourceKind));
+            List<string> GetPlaylistFromScenes(string sceneName, HashSet<string> sourceKinds)
+                => GetSceneItems(sceneName)
+                    .Where(item => sourceKinds.Contains(item.SourceKind))
+                    .SelectMany(item => GetPlaylistFromInput(item.SourceName))
+                    .Select(playlist => playlist.Value)
+                    .Where(value => value is not null)
+                    .ToList()!;
         }
 
         private IEnumerable<SceneBasicInfo> GetScenes()
@@ -94,9 +102,29 @@ namespace VlcObsService
             }
             catch (Exception error)
             {
-                _logger.LogError(error, "Error requested scenes for OBS");
+                _logger.LogError(error, "Error requested items for OBS scene {scene}", scene);
                 return Enumerable.Empty<SceneItemDetails>();
             }
+        }
+
+        private IEnumerable<PlaylistItem> GetPlaylistFromInput(string inputName)
+        {
+            try
+            {
+                return obs.GetInputSettings(inputName).Settings["playlist"]?.ToObject<List<PlaylistItem>>()
+                    ?? new();
+            }
+            catch (Exception error)
+            {
+                _logger.LogError(error, "Error requested playlist for OBS input {inputName}", inputName);
+                return Enumerable.Empty<PlaylistItem>();
+            }
+        }
+
+        private class PlaylistItem
+        {
+            [JsonProperty(PropertyName = "value")]
+            public string? Value { get; set; }
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -167,10 +195,11 @@ namespace VlcObsService
 
         private void HandleScene(string scene)
         {
-            if (ShouldPlayMusic(scene))
+            var playlist = GetPlaylistForScene(scene);
+            if (playlist is not null)
             {
                 _logger.LogInformation("Scene {scene} requires playing", scene);
-                StartAndLogFailure(() => vlcWorker.PlayAsync(), "playing");
+                StartAndLogFailure(() => vlcWorker.PlayAsync(playlist), "playing");
             }
             else
             {
@@ -179,13 +208,20 @@ namespace VlcObsService
             }
         }
 
-        private bool ShouldPlayMusic(string scene)
+        /// <summary>
+        /// Get the playlist for the scene
+        /// </summary>
+        /// <param name="scene">name of the scene</param>
+        /// <returns>null if no music, empty if music from config, list of music if music from OBS</returns>
+        private List<string>? GetPlaylistForScene(string scene)
         {
             var scenes = optionsMonitor.CurrentValue.ScenesWithMusic;
             if (scenes?.Count > 0)
-                return scenes.Contains(scene);
+                return scenes.Contains(scene) ? new() : null;
 
-            return scenesWithMusicSourceKinds.Contains(scene);
+            return playlistForScene.TryGetValue(scene, out var value)
+                ? value
+                : null;
         }
 
         public async void StartAndLogFailure(Func<Task> task, string request)

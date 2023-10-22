@@ -1,4 +1,5 @@
-﻿using System.ComponentModel;
+﻿using Newtonsoft.Json.Linq;
+using System.ComponentModel;
 using System.Diagnostics;
 using VlcObsService.Vlc.Models;
 
@@ -45,7 +46,7 @@ public class VlcInstance : IDisposable
         }
     }
 
-    public async Task PlayAsync()
+    public async Task PlayAsync(List<string> playlist)
     {
         CancellationTokenSource cts = new();
         Interlocked.Exchange(ref changesCts, cts).Cancel();
@@ -63,7 +64,7 @@ public class VlcInstance : IDisposable
         if (status.State == "paused" || status.State == "stopped")
             status = await service.SetVolume(0, cts.Token);
 
-        await EnqueuePlaylistAsync(cts.Token);
+        await EnqueuePlaylistAsync(playlist, cts.Token);
 
         if (status.State == "paused")
             status = await service.Next(cts.Token);
@@ -74,19 +75,45 @@ public class VlcInstance : IDisposable
         await FadeTo(status, 256, 256, 2000, cts.Token);
     }
 
-    public async Task EnqueuePlaylistAsync(CancellationToken token)
+    public async Task EnqueuePlaylistAsync(List<string> requestedPlaylist, CancellationToken token)
     {
         var playlist = await service.GetPlaylist(token);
         if (playlist?.EnqueuedItems?.Length > 0)
             return;
 
-        var urisToAdd = (await service.Browse(token))
-            .Element.GetFileUris("*.mp3");
+        var urisToAdd = await GetElements(requestedPlaylist, token);
 
         foreach (var uri in urisToAdd)
             await service.Enqueue(uri, token);
 
         await service.Randomize(token);
+    }
+
+    public async Task<IEnumerable<string>> GetElements(List<string> requestedPlaylist, CancellationToken token)
+    {
+        var filter = service.GetFilter();
+
+        if (requestedPlaylist.Count == 0)
+            return (await service.Browse(token)).Element.GetFileUris(filter);
+
+        var itemsUri = requestedPlaylist.Select(ToUri).ToList();
+
+        var validFiles = itemsUri.WhereUriMatches(filter);
+        var browseResults = await Task.WhenAll(itemsUri
+            .Except(validFiles)
+            .Select(item => service.Browse(item)));
+
+        return validFiles
+            .Concat(browseResults.SelectMany(result => result.Element.GetFileUris(filter)));
+
+        static string ToUri(string item)
+        {
+            if (Uri.IsWellFormedUriString(item, UriKind.Absolute))
+                return item;
+
+            return "file:///" + string.Join('/',
+                item.Split('/').Select(Uri.EscapeDataString));
+        }
     }
 
     public async Task StopAsync()

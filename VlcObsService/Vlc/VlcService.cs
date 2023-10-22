@@ -5,6 +5,7 @@ using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using VlcObsService.Vlc.Models;
 
 namespace VlcObsService.Vlc;
@@ -125,16 +126,33 @@ public class VlcService
     public Task Randomize(CancellationToken cancellationToken = default)
         => GetStatus("?command=pl_sort&id=0&val=random", cancellationToken);
 
-    public async Task<BrowseResult> Browse(CancellationToken cancellationToken = default)
+    public Task<BrowseResult> Browse(CancellationToken cancellationToken = default)
+        => Browse(optionsMonitor.CurrentValue.FolderUri, cancellationToken);
+
+    public async Task<BrowseResult> Browse(string? uri, CancellationToken cancellationToken = default)
     {
+        if (uri is null)
+            return new BrowseResult(Array.Empty<BrowseElement>());
+
         using var response = await GetWithRetry(
-            "/requests/browse.json?uri=" + optionsMonitor.CurrentValue.FolderUri, 
+            "/requests/browse.json?uri=" + uri,
             cancellationToken);
         response.EnsureSuccessStatusCode();
 
-        return (await response.Content.ReadFromJsonAsync<BrowseResult>(cancellationToken: cancellationToken))
-            ?? throw new InvalidOperationException("Vlc could not be browse uri " + optionsMonitor.CurrentValue.FolderUri);
+        try
+        {
+            return (await response.Content.ReadFromJsonAsync<BrowseResult>(cancellationToken: cancellationToken))
+                ?? throw new InvalidOperationException("Received null result");
+        }
+        catch(Exception ex)
+        {
+            logger.LogError(ex, "Couldn't browse URI {uri}", uri);
+            return new BrowseResult(Array.Empty<BrowseElement>());
+        }
     }
+
+    public Regex GetFilter()
+        => optionsMonitor.CurrentValue.Extensions.AsWildcardRegex();
 
     public async Task<PlaylistNode> GetPlaylist(CancellationToken cancellationToken = default)
     {
