@@ -219,7 +219,7 @@ namespace VlcObsService
             if (scenes?.Count > 0)
                 return scenes.Contains(scene) ? new() : null;
 
-            return playlistForScene.TryGetValue(scene, out var value)
+            return playlistForScene.TryGetValue(scene, out var value) && value.Count > 0
                 ? value
                 : null;
         }
