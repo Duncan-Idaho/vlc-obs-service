@@ -39,7 +39,7 @@ jobs:
           if-no-files-found: error
 
       - name: Build installer 
-        run: dotnet build --no-restore .\VlcObsService.Installer\ -c Release   
+        run: dotnet build --no-restore ./VlcObsService.Installer/ -c Release   
         
       - name: Upload en-US installer
         uses: actions/upload-artifact@v3
