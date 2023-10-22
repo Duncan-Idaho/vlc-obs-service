@@ -11,19 +11,7 @@
             <ComponentGroupRef Id="ServiceComponent"/>
         </Feature>  
 		<ui:WixUI Id="WixUI_Minimal"/>
-	    <UI>
-			<Publish Dialog="WelcomeDlg"
-                     Control="Next"
-                     Event="NewDialog"
-                     Value="InstallDirDlg"
-                     Order="2"/>
-			
-			<Publish Dialog="InstallDirDlg"
-                     Control="Back"
-                     Event="NewDialog"
-                     Value="WelcomeDlg"
-                     Order="2"/>
-			
+	    <UI>			
 		    <Publish Dialog="ExitDialog"
 				     Control="Finish"
                      Event="DoAction"

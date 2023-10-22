@@ -6,4 +6,7 @@
   <ItemGroup>
     <ProjectReference Include="..\VlcObsService\VlcObsService.csproj" />
   </ItemGroup>
+  <PropertyGroup>
+   <InstallerPlatform>x64</InstallerPlatform>
+ </PropertyGroup>
 </Project>

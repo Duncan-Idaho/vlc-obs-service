@@ -5,11 +5,11 @@
 		<Component Id="ServiceExecutable" Bitness="always64">
 
 			<File Id="VlcObsService.exe"
-				  Source="$(VlcObsService.TargetDir)publish\win-x64\VlcObsService.exe"
+				  Source="$(VlcObsService.TargetDir)publish\VlcObsService.exe"
 				  KeyPath="true" />
 
 			<File Id="appsettings.json"
-				  Source="$(VlcObsService.TargetDir)publish\win-x64\appsettings.json" />
+				  Source="$(VlcObsService.TargetDir)publish\appsettings.json" />
 
 			<RemoveFile Id="ALLFILES" Name="*.*" On="both" />
 
