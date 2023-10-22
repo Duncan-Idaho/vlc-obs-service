@@ -1,4 +1,5 @@
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+	 xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Fragment>
     <ComponentGroup Id="ServiceComponent" Directory="INSTALLFOLDER">
 		<Component Id="ServiceExecutable" Bitness="always64">
@@ -7,22 +8,22 @@
 				  Source="$(VlcObsService.TargetDir)publish\win-x64\VlcObsService.exe"
 				  KeyPath="true" />
 
+			<File Id="appsettings.json"
+				  Source="$(VlcObsService.TargetDir)publish\win-x64\appsettings.json" />
+
 			<RemoveFile Id="ALLFILES" Name="*.*" On="both" />
 
-			<ServiceInstall Id="ServiceInstaller"
-							Type="ownProcess"
-							Name="!(bind.Property.ProductName)"
-							DisplayName="!(loc.ServiceName)"
-							Description="!(loc.ServiceDescription)"
-							Start="auto"
-							ErrorControl="normal" />
-
-			<ServiceControl Id="StartService"
-							Start="install"
-							Stop="both"
-							Remove="uninstall"
-							Name="!(bind.Property.ProductName)"
-							Wait="true" />
+		</Component>
+		<Component Id="ApplicationShortcut" Directory="StartupFolder">
+			<Shortcut Id="ApplicationStartMenuShortcut"
+					  Name="!(loc.ServiceName)"
+					  Description="!(loc.ServiceDescription)"
+					  Target="[!VlcObsService.exe]"
+					  WorkingDirectory="INSTALLFOLDER"
+					  Show="minimized"
+					  />
+			<RegistryValue Root="HKCU" Key="Software\!(bind.Property.ProductName)"
+						   Name="installed" Type="integer" Value="1" KeyPath="yes"/>
 		</Component>
     </ComponentGroup>
   </Fragment>

@@ -1,14 +1,43 @@
-﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <Package 
-	  Name="VLC-OBS Service" 
-	  Manufacturer="Duncan Idaho" 
-	  Version="1.0.0.0" 
-	  UpgradeCode="810dcc07-eefa-48d2-b08a-469f5f9aaa49"
-	  Compressed="true">
-    <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeError)"  />
+﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+    <Package Name="VLC-OBS Service" 
+             Manufacturer="Duncan Idaho" 
+             Version="1.0.0.0" 
+             UpgradeCode="810dcc07-eefa-48d2-b08a-469f5f9aaa49"
+             Compressed="true">
+        <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeError)"  />
 
-    <Feature Id="ServiceFeature">
-      <ComponentGroupRef Id="ServiceComponent"/>
-    </Feature>
-  </Package>
+        <Feature Id="ServiceFeature">
+            <ComponentGroupRef Id="ServiceComponent"/>
+        </Feature>  
+		<ui:WixUI Id="WixUI_Minimal"/>
+	    <UI>
+			<Publish Dialog="WelcomeDlg"
+                     Control="Next"
+                     Event="NewDialog"
+                     Value="InstallDirDlg"
+                     Order="2"/>
+			
+			<Publish Dialog="InstallDirDlg"
+                     Control="Back"
+                     Event="NewDialog"
+                     Value="WelcomeDlg"
+                     Order="2"/>
+			
+		    <Publish Dialog="ExitDialog"
+				     Control="Finish"
+                     Event="DoAction"
+                     Value="LaunchApplication"
+					 Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed"
+					 />
+        </UI>
+		<Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1"/>
+		<Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch My Application Name" />
+
+        <Property Id="WixShellExecTarget" Value="[#VlcObsService.exe]" />
+        <CustomAction Id="LaunchApplication"
+					  BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)"
+                      DllEntry="WixShellExec"
+                      Impersonate="yes" />
+    </Package>
 </Wix>

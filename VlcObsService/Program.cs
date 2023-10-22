@@ -1,3 +1,9 @@
+using Microsoft.Extensions.Hosting.WindowsServices;
+using Microsoft.Extensions.Logging.EventLog;
+using Microsoft.Extensions.Options;
+using System.Diagnostics;
+using System.Net.Mime;
+using System.Runtime.InteropServices;
 using VlcObsService;
 using VlcObsService.Obs;
 using VlcObsService.Vlc;
@@ -9,10 +15,20 @@ IHost host = Host.CreateDefaultBuilder(args)
         services.AddSingleton(_ => obsConfiguration); // Will be disposable
         services.Configure<ObsApplicationWebSocketOptions>(obsConfiguration.Configuration.GetSection("OBSWebSocket"));
 
-        services.AddWindowsService(options =>
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            options.ServiceName = "VLC-OBS Service";
-        });
+            services.AddLogging(logging =>
+            {
+                Debug.Assert(RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
+                logging.AddEventLog();
+            });
+            services.Configure<EventLogSettings>(settings =>
+            {
+                Debug.Assert(RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
+                settings.SourceName = "VLC-OBS Service";
+            });
+        }
+
         services.AddHostedService<ObsWorker>();
         services.Configure<ObsWorkerOptions>(context.Configuration.GetSection("Obs"));
 
