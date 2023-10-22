@@ -10,6 +10,7 @@ jobs:
   build:
     uses: ./.github/workflows/build_artifacts.yml
   release:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Download a single artifact
