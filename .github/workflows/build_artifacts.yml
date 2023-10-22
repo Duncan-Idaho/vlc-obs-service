@@ -1,0 +1,57 @@
+name: Build artifacts
+on:
+  workflow_call:
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup dotnet
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '7.0.x' 
+
+      - name: Restore cache
+        uses: actions/cache@v3
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget
+
+      - name: Install dependencies
+        run: dotnet restore
+
+      - name: Publish app 
+        run: dotnet publish --no-restore -c Release -r win-x64   
+        
+      - name: Upload application
+        uses: actions/upload-artifact@v3
+        with:
+          name: application
+          path: VlcObsService/bin/Release/net7.0/win-x64/publish/**
+          if-no-files-found: error
+
+      - name: Build installer 
+        run: dotnet build --no-restore ./VlcObsService.Installer/ -c Release   
+        
+      - name: Upload en-US installer
+        uses: actions/upload-artifact@v3
+        with:
+          name: en-US-installer
+          path: VlcObsService.Installer/bin/Release/en-US/VlcObsService.Installer.msi
+          if-no-files-found: error
+
+      - name: Upload fr-FR installer
+        uses: actions/upload-artifact@v3
+        with:
+          name: fr-FR-installer
+          path: VlcObsService.Installer/bin/Release/fr-FR/VlcObsService.Installer.msi
+          if-no-files-found: error
+
+
+
+
