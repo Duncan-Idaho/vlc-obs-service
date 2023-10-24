@@ -1,11 +1,12 @@
 ﻿using Newtonsoft.Json.Linq;
+using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using VlcObsService.Vlc.Models;
 
 namespace VlcObsService.Vlc;
 
-public class VlcInstance : IDisposable
+public class VlcInstance : IAsyncDisposable
 {
     private readonly VlcService service;
     private readonly Process process;
@@ -19,21 +20,21 @@ public class VlcInstance : IDisposable
         this.process = process;
 
         process.EnableRaisingEvents = true;
-        process.Exited += (_, _) =>
+        process.Exited += async (_, _) =>
         {
             // If exited from the app, skip the close step
             closeWhenDisposed = false;
-            Dispose();
+            await DisposeAsync();
         };
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
-        Dispose(true);
+        await DisposeAsync(true);
         GC.SuppressFinalize(this);
     }
 
-    protected virtual void Dispose(bool disposing)
+    protected virtual async ValueTask DisposeAsync(bool disposing)
     {
         if (disposing)
         {
@@ -41,7 +42,17 @@ public class VlcInstance : IDisposable
             // if the application closes its server before sending Exited event
             changesCts.Cancel();
             if (closeWhenDisposed)
+            {
                 process.CloseMainWindow();
+                try
+                {
+                    await process.WaitForExitAsync(new CancellationTokenSource(500).Token);
+                }
+                catch (TaskCanceledException) 
+                { 
+                    process.Kill();
+                }
+            }
             process.Dispose();
         }
     }

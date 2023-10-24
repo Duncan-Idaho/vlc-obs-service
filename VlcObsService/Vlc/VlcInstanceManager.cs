@@ -85,7 +85,7 @@ public class VlcInstanceManager: IAsyncDisposable
             {
                 var previousInstance = await ResetWithLock();
                 if (previousInstance!= null)
-                    (await previousInstance).Dispose();
+                    await (await previousInstance).DisposeAsync();
 
                 logger.LogInformation("VLC stopped");
             }
