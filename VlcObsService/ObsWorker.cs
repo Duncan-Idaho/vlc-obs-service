@@ -59,8 +59,9 @@ namespace VlcObsService
                 _ => new()
             };
 
-            _logger.LogInformation("Scenes with music source kinds refreshed: {scenes}",
-                string.Join(',', playlistForScene.Keys));
+            var scenesWithMusic = playlistForScene.Where(pair => pair.Value.Count > 0).Select(pair => pair.Key);
+
+            _logger.LogInformation("Scenes with music source kinds refreshed: {scenes}", string.Join(',', scenesWithMusic));
 
             Dictionary<string, List<string>> GetMusicWitSourceKinds(HashSet<string> sourceKinds)
             {
@@ -165,7 +166,7 @@ namespace VlcObsService
             }
         }
 
-        private void Obs_CurrentProgramSceneChanged(object? sender, OBSWebsocketDotNet.Types.Events.ProgramSceneChangedEventArgs e)
+        private void Obs_CurrentProgramSceneChanged(object? sender, ProgramSceneChangedEventArgs e)
         {
             HandleScene(e.SceneName);
         }
