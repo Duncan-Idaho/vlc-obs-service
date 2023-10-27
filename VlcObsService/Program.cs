@@ -30,6 +30,7 @@ IHost host = Host.CreateDefaultBuilder(args)
         }
 
         services.AddHostedService<ObsWorker>();
+        services.AddSingleton<ObsWatcher>();
         services.Configure<ObsWorkerOptions>(context.Configuration.GetSection("Obs"));
 
         services.AddSingleton<VlcInstanceManager>();

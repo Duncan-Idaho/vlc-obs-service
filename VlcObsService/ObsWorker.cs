@@ -1,193 +1,49 @@
 using Microsoft.Extensions.Options;
+using Microsoft.VisualBasic;
 using OBSWebsocketDotNet;
 using OBSWebsocketDotNet.Types;
-using OBSWebsocketDotNet.Types.Events;
-using System.Collections.Concurrent;
-using System.Diagnostics.CodeAnalysis;
 using VlcObsService.Obs;
 using VlcObsService.Vlc;
-using static VlcObsService.Obs.ObsRepository;
+using Input = VlcObsService.Obs.Models.Input;
 
 namespace VlcObsService
 {
     public sealed class ObsWorker : BackgroundService
     {
         private readonly ILogger<ObsWorker> _logger;
-        private readonly OBSWebsocket obs = new ();
-        private readonly ObsRepository repository;
+        private readonly ObsWatcher _obs;
+        private readonly VlcInstanceManager _vlc;
 
-        private readonly VlcInstanceManager vlcWorker;
+        private readonly IOptionsMonitor<ObsWorkerOptions> _optionsMonitor;
+        private readonly IOptionsMonitor<ObsApplicationWebSocketOptions> _obsOptionsMonitor;
 
-        private readonly IOptionsMonitor<ObsWorkerOptions> optionsMonitor;
-        private readonly IOptionsMonitor<ObsApplicationWebSocketOptions> obsOptionsMonitor;
-
-        private ConcurrentDictionary<string, Scene> scenes = new();
-        private ConcurrentDictionary<string, Input> inputs = new();
-        private string? currentSceneName = null;
-        private IReadOnlyList<Input> inputsInPlay = new List<Input>();
-
-        private record Scene(
-            string Name,
-            List<SceneItemDetails> Items,
-            ConcurrentDictionary<int, bool?> ItemsEnabled);
-
-        private record Input(string Name)
-        {
-            public float? Volume { get; set; }
-            public bool? Muted { get; set; }
-            public SourceSettings? Settings { get; set; }
-
-            public List<string>? ValidPlaylistItems
-                => Settings?.ValidPlaylistItems;
-
-            [MemberNotNullWhen(true, nameof(Volume), nameof(Muted), nameof(ValidPlaylistItems))]
-            public bool IsActive
-                => Volume > 0
-                && Muted == false
-                && ValidPlaylistItems is { Count: > 0 };
-        }
+        private IReadOnlyList<Input> _inputsInPlay = new List<Input>();
 
         public ObsWorker(
-            ILogger<ObsWorker> logger, 
-            VlcInstanceManager vlcWorker,
+            ILogger<ObsWorker> logger,
+            ObsWatcher state,
+            VlcInstanceManager vlc,
             IOptionsMonitor<ObsWorkerOptions> optionsMonitor,
             IOptionsMonitor<ObsApplicationWebSocketOptions> obsOptionsMonitor)
         {
             _logger = logger;
-            repository = new(logger, obs);
 
-            obs.Connected += Obs_Connected;
-            obs.Disconnected += Obs_Disconnected;
-            obs.CurrentProgramSceneChanged += Obs_CurrentProgramSceneChanged;
+            _obs = state;
+            _obs.RecheckSceneNeeded += HandleScene;
+            _obs.VolumeChanged += HandleVolumeChange;
+            _obs.Disconnected += HandleDisconnected;
 
-            obs.InputCreated += Obs_InputCreated;
-            obs.InputRemoved += Obs_InputRemoved;
-            obs.InputNameChanged += Obs_InputNameChanged;
-            obs.InputVolumeChanged += Obs_InputVolumeChanged;
-            obs.InputMuteStateChanged += Obs_InputMuteStateChanged;
-            obs.SceneItemEnableStateChanged += Obs_SceneItemEnableStateChanged;
-
-            obs.SceneItemCreated += Obs_SceneItemCreated;
-            obs.SceneItemRemoved += Obs_SceneItemRemoved;
-            obs.SceneListChanged += Obs_SceneListChanged;
-
-            this.vlcWorker = vlcWorker;
-            this.optionsMonitor = optionsMonitor;
-            this.obsOptionsMonitor = obsOptionsMonitor;
-        }
-
-        private void Obs_SceneItemEnableStateChanged(object? sender, SceneItemEnableStateChangedEventArgs e)
-        {
-            if (!scenes.TryGetValue(e.SceneName, out var scene))
-            {
-                _logger.LogWarning("Item enabled status of {inputName} from scene {scene} can't be updated because the scene was not sent by OBS", e.SceneName);
-                return;
-            }
-            scene.ItemsEnabled[e.SceneItemId] = e.SceneItemEnabled;
-            RecheckScene();
-        }
-
-        private void Obs_InputVolumeChanged(object? sender, InputVolumeChangedEventArgs e)
-        {
-            if (inputs.TryGetValue(e.Volume.InputName, out var input))
-                input.Volume = e.Volume.InputVolumeMul;
-            else
-                _logger.LogWarning("Volume of {inputName} can't be updated because the input was not sent by OBS", e.Volume.InputName);
-
-            HandleVolumeChange(e.Volume.InputName);
-        }
-
-        private void Obs_InputMuteStateChanged(object? sender, InputMuteStateChangedEventArgs e)
-        {
-            if (inputs.TryGetValue(e.InputName, out var input))
-                input.Muted = e.InputMuted;
-            else
-                _logger.LogWarning("Mute status of {inputName} can't be updated because the input was not sent by OBS", e.InputName);
-
-            RecheckScene();
-        }
-
-
-        private void Obs_InputCreated(object? sender, InputCreatedEventArgs e)
-        {
-            RefreshInput(e.InputName);
-        }
-
-        private void Obs_InputRemoved(object? sender, InputRemovedEventArgs e)
-        {
-            inputs.TryRemove(e.InputName, out _);
-            RecheckScene();
-        }
-
-        private void Obs_SceneItemRemoved(object? sender, SceneItemRemovedEventArgs e)
-        {
-            RefreshSceneItems();
-        }
-
-        private void Obs_SceneItemCreated(object? sender, SceneItemCreatedEventArgs e)
-        {
-            RefreshSceneItems();
-        }
-
-        private void Obs_SceneListChanged(object? sender, SceneListChangedEventArgs e)
-        {
-            RefreshSceneItems();
-        }
-
-        public void RefreshSceneItems()
-        {
-            scenes = new(repository.GetScenes().ToDictionary(scene => scene.Name, GetSceneInfo));
-
-            _logger.LogInformation("Scenes refreshed: {scenes}", string.Join(',', scenes.Values.Select(scene => scene.Name)));
-
-            Scene GetSceneInfo(SceneBasicInfo scene)
-            {
-                var items = repository.GetSceneItems(scene.Name);
-                var itemsEnabled = items.ToDictionary(
-                    item => item.ItemId,
-                    item => repository.GetSceneItemEnabled(scene.Name, item.ItemId));
-                return new(scene.Name, items, new(itemsEnabled));
-            }
-
-            RecheckScene();
-        }
-
-        private void Obs_InputNameChanged(object? sender, InputNameChangedEventArgs e)
-        {
-            if (!inputs.TryRemove(e.OldInputName, out _))
-                return;
-
-            RefreshInput(e.InputName);
-        }
-
-        public void RefreshInput(string inputName)
-        {
-            inputs.AddOrUpdate(inputName,
-                GetInput,
-                (_, _) => GetInput(inputName));
-
-            RecheckScene();
+            _vlc = vlc;
+            _optionsMonitor = optionsMonitor;
+            _obsOptionsMonitor = obsOptionsMonitor;
         }
 
         public override void Dispose()
         {
             base.Dispose();
-        }
-
-        public void RefreshInputs()
-        {
-            var inputNames = repository.GetInputList().Select(input => input.InputName);
-            inputs = new(inputNames.ToDictionary(name => name, GetInput));
-        }
-
-        private Input GetInput(string name)
-        {
-            return new Input(name)
-            {
-                Volume = repository.GetInputVolume(name),
-                Muted = repository.GetInputMute(name),
-                Settings = repository.GetInputSettings(name)
-            };
+            _obs.RecheckSceneNeeded -= HandleScene;
+            _obs.VolumeChanged -= HandleVolumeChange;
+            _obs.Disconnected -= HandleDisconnected;
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -196,17 +52,17 @@ namespace VlcObsService
             {
                 while (!stoppingToken.IsCancellationRequested)
                 {
-                    if (!obs.IsConnected)
+                    if (!_obs.IsConnected)
                     {
-                        var options = this.optionsMonitor.CurrentValue;
-                        var obsOptions = this.obsOptionsMonitor.CurrentValue;
+                        var options = _optionsMonitor.CurrentValue;
+                        var obsOptions = _obsOptionsMonitor.CurrentValue;
 
                         var url = options.Url ?? obsOptions.BuildLocalhostWebSocketUrl();
                         var password = options.Password ?? obsOptions.ServerPassword;
 
                         if (url is not null && password is not null)
                         {
-                            obs.ConnectAsync(url, password);
+                            _obs.Connect(url, password);
                             _logger.LogInformation("Waiting for OBS...");
                         }
                         else
@@ -214,7 +70,7 @@ namespace VlcObsService
                             _logger.LogInformation("There is no configuration path for OBS nor any port or password configuration");
                         }
                     }
-                    await Task.Delay(obs.WSTimeout, stoppingToken);
+                    await Task.Delay(_obs.WSTimeout, stoppingToken);
                 }
             }
             catch (TaskCanceledException)
@@ -228,64 +84,38 @@ namespace VlcObsService
             }
         }
 
-        private void Obs_CurrentProgramSceneChanged(object? sender, ProgramSceneChangedEventArgs e)
+        private void HandleScene(object? sender, string scene)
         {
-            HandleScene(e.SceneName);
-        }
-
-        private void Obs_Disconnected(object? sender, OBSWebsocketDotNet.Communication.ObsDisconnectionInfo e)
-        {
-            _logger.LogInformation("Disconnected");
-            StartAndLogFailure(() => vlcWorker.EnsureClosedAsync(), "closing");
-        }
-
-        private void Obs_Connected(object? sender, EventArgs e)
-        {
-            _logger.LogInformation("Connected");
-            RefreshInputs();
-            RefreshSceneItems();
-            HandleScene(obs.GetCurrentProgramScene());
-        }
-
-        private void RecheckScene()
-        {
-            if (currentSceneName is not null)
-                HandleScene(currentSceneName);
-        }
-
-        private void HandleScene(string scene)
-        {
-            currentSceneName = scene;
             var playAction = GetPlayActionForInput(scene)
                 ?? GetPlayActionForScene(scene);
 
             if (playAction is not null)
             {
                 _logger.LogInformation("Scene {scene} requires playing", scene);
-                StartAndLogFailure(() => vlcWorker.PlayAsync(playAction.Value.Playlist, playAction.Value.Volume), "playing");
+                StartAndLogFailure(() => _vlc.PlayAsync(playAction.Value.Playlist, playAction.Value.Volume), "playing");
             }
             else
             {
                 _logger.LogInformation("Scene {scene} requires stopping", scene);
-                StartAndLogFailure(() => vlcWorker.StopAsync(), "stopping");
+                StartAndLogFailure(() => _vlc.StopAsync(), "stopping");
             }
         }
 
-        private void HandleVolumeChange(string inputName)
+        private void HandleVolumeChange(object? sender, string inputName)
         {
-            var inputsInPlay = this.inputsInPlay;
+            var inputsInPlay = _inputsInPlay;
             if (!inputsInPlay.Any(input => input.Name == inputName))
                 return;
 
             var (playlist, volume) = GetPlayActionForInputsInPlay(inputsInPlay);
             _logger.LogInformation("Volume change requested from input {inputName}", inputName);
             
-            StartAndLogFailure(() => vlcWorker.PlayAsync(playlist, volume), "playing");
+            StartAndLogFailure(() => _vlc.PlayAsync(playlist, volume), "playing");
         }
 
         private (List<string> Playlist, int Volume)? GetPlayActionForScene(string scene)
         {
-            var scenesWithMusic = optionsMonitor.CurrentValue.ScenesWithMusic;
+            var scenesWithMusic = _optionsMonitor.CurrentValue.ScenesWithMusic;
             if (scenesWithMusic is not { Count: > 0 })
                 return null;
 
@@ -296,11 +126,11 @@ namespace VlcObsService
 
         private (List<string> Playlist, int Volume)? GetPlayActionForInput(string sceneName)
         {
-            var sourceKindsWithMusic = optionsMonitor.CurrentValue.SourceKindsWithMusic;
+            var sourceKindsWithMusic = _optionsMonitor.CurrentValue.SourceKindsWithMusic;
             if (sourceKindsWithMusic is not { Count: > 0 })
                 return null;
 
-            inputsInPlay = GetInputsForScene(sceneName)
+            _inputsInPlay = GetInputsForScene(sceneName)
                 .Where(item => item.SourceType == SceneItemSourceType.OBS_SOURCE_TYPE_INPUT)
                 .Where(input => sourceKindsWithMusic.Contains(input.SourceKind))
                 .Select(item => item.SourceName)
@@ -308,38 +138,38 @@ namespace VlcObsService
                 .Where(input => input.IsActive)
                 .ToList();
 
-            if (inputsInPlay.Count == 0)
+            if (_inputsInPlay.Count == 0)
                 return null;
 
-            return GetPlayActionForInputsInPlay(inputsInPlay);
+            return GetPlayActionForInputsInPlay(_inputsInPlay);
+        }
 
-            IEnumerable<SceneItemDetails> GetInputsForScene(string sceneName)
+        private Input GetInputOrDefault(string inputName)
+        {
+            if (!_obs.Inputs.TryGetValue(inputName, out var input))
             {
-                if (!scenes.TryGetValue(sceneName, out var scene))
-                {
-                    _logger.LogWarning("Scene {sceneName} was not received from OBS, yet it is now visible", sceneName);
-                    return Enumerable.Empty<SceneItemDetails>();
-                }
-
-                var inputsFromChildScenes = scene.Items
-                    .Where(item => item.SourceType == SceneItemSourceType.OBS_SOURCE_TYPE_SCENE)
-                    .SelectMany(input => GetInputsForScene(input.SourceName));
-
-                return scene.Items
-                    .Where(item => scene.ItemsEnabled.TryGetValue(item.ItemId, out var enabled) && enabled == true)
-                    .Concat(inputsFromChildScenes);
+                _logger.LogWarning("Input {inputName} was not received from OBS, yet its active state changed", inputName);
+                return new Input(inputName);
             }
 
-            Input GetInputOrDefault(string inputName)
-            {
-                if (!inputs.TryGetValue(inputName, out var input))
-                {
-                    _logger.LogWarning("Input {inputName} was not received from OBS, yet its active state changed", inputName);
-                    return new Input(inputName);
-                }
+            return input;
+        }
 
-                return input;
+        private IEnumerable<SceneItemDetails> GetInputsForScene(string sceneName)
+        {
+            if (!_obs.Scenes.TryGetValue(sceneName, out var scene))
+            {
+                _logger.LogWarning("Scene {sceneName} was not received from OBS, yet it is now visible", sceneName);
+                return Enumerable.Empty<SceneItemDetails>();
             }
+
+            var inputsFromChildScenes = scene.Items
+                .Where(item => item.SourceType == SceneItemSourceType.OBS_SOURCE_TYPE_SCENE)
+                .SelectMany(input => GetInputsForScene(input.SourceName));
+
+            return scene.Items
+                .Where(item => scene.ItemsEnabled.TryGetValue(item.ItemId, out var enabled) && enabled == true)
+                .Concat(inputsFromChildScenes);
         }
 
         private static (List<string> Playlist, int Volume) GetPlayActionForInputsInPlay(IReadOnlyList<Input> inputsInPlay)
@@ -350,7 +180,12 @@ namespace VlcObsService
             return (playlists, volume);
         }
 
-        public async void StartAndLogFailure(Func<Task> task, string request)
+        private void HandleDisconnected(object? sender, EventArgs e)
+        {
+            StartAndLogFailure(() => _vlc.EnsureClosedAsync(), "closing");
+        }
+
+        private async void StartAndLogFailure(Func<Task> task, string request)
         {
             try
             {

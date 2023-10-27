@@ -1,15 +1,15 @@
-﻿using Newtonsoft.Json;
-using OBSWebsocketDotNet;
+﻿using OBSWebsocketDotNet;
 using OBSWebsocketDotNet.Types;
+using VlcObsService.Obs.Models;
 
 namespace VlcObsService.Obs;
 
-internal class ObsRepository
+public class ObsRepository
 {
-    private readonly ILogger<ObsWorker> _logger;
+    private readonly ILogger<ObsRepository> _logger;
     private readonly OBSWebsocket obs;
 
-    public ObsRepository(ILogger<ObsWorker> logger, OBSWebsocket obs)
+    public ObsRepository(ILogger<ObsRepository> logger, OBSWebsocket obs)
     {
         _logger = logger;
         this.obs = obs;
@@ -106,25 +106,5 @@ internal class ObsRepository
             _logger.LogError(error, "Error requesting mute status for OBS input {inputName}", inputName);
             return null;
         }
-    }
-
-    public class SourceSettings
-    {
-        [JsonProperty(PropertyName = "playlist")]
-        public List<PlaylistItem>? PlaylistItems { get; set; }
-
-        [JsonIgnore]
-        public List<string> ValidPlaylistItems
-            => PlaylistItems
-            ?.Where(item => item.Value is not null)
-            .Select(item => item.Value!)
-            .ToList()
-            ?? new List<string>();
-    }
-
-    public class PlaylistItem
-    {
-        [JsonProperty(PropertyName = "value")]
-        public string? Value { get; set; }
     }
 }
