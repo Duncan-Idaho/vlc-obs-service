@@ -1,5 +1,4 @@
 using Microsoft.Extensions.Options;
-using Newtonsoft.Json;
 using OBSWebsocketDotNet;
 using OBSWebsocketDotNet.Types;
 using OBSWebsocketDotNet.Types.Events;
@@ -7,7 +6,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using VlcObsService.Obs;
 using VlcObsService.Vlc;
-using static System.Formats.Asn1.AsnWriter;
+using static VlcObsService.Obs.ObsRepository;
 
 namespace VlcObsService
 {
@@ -15,6 +14,8 @@ namespace VlcObsService
     {
         private readonly ILogger<ObsWorker> _logger;
         private readonly OBSWebsocket obs = new ();
+        private readonly ObsRepository repository;
+
         private readonly VlcInstanceManager vlcWorker;
 
         private readonly IOptionsMonitor<ObsWorkerOptions> optionsMonitor;
@@ -53,6 +54,8 @@ namespace VlcObsService
             IOptionsMonitor<ObsApplicationWebSocketOptions> obsOptionsMonitor)
         {
             _logger = logger;
+            repository = new(logger, obs);
+
             obs.Connected += Obs_Connected;
             obs.Disconnected += Obs_Disconnected;
             obs.CurrentProgramSceneChanged += Obs_CurrentProgramSceneChanged;
@@ -133,60 +136,20 @@ namespace VlcObsService
 
         public void RefreshSceneItems()
         {
-            scenes = new(GetScenes().ToDictionary(scene => scene.Name, GetSceneInfo));
+            scenes = new(repository.GetScenes().ToDictionary(scene => scene.Name, GetSceneInfo));
 
             _logger.LogInformation("Scenes refreshed: {scenes}", string.Join(',', scenes.Values.Select(scene => scene.Name)));
 
             Scene GetSceneInfo(SceneBasicInfo scene)
             {
-                var items = GetSceneItems(scene.Name);
+                var items = repository.GetSceneItems(scene.Name);
                 var itemsEnabled = items.ToDictionary(
                     item => item.ItemId,
-                    item => GetSceneItemEnabled(scene.Name, item.ItemId));
+                    item => repository.GetSceneItemEnabled(scene.Name, item.ItemId));
                 return new(scene.Name, items, new(itemsEnabled));
             }
 
             RecheckScene();
-        }
-
-        private IEnumerable<SceneBasicInfo> GetScenes()
-        {
-            try
-            {
-                return obs.GetSceneList().Scenes;
-            }
-            catch (Exception error)
-            {
-                _logger.LogError(error, "Error requesting scene list from OBS");
-                return Enumerable.Empty<SceneBasicInfo>();
-            }
-        }
-
-        private bool? GetSceneItemEnabled(string sceneName, int itemId)
-        {
-            try
-            {
-                return obs.GetSceneItemEnabled(sceneName, itemId);
-            }
-            catch (Exception error)
-            {
-                _logger.LogError(error, "Error requesting scene list from OBS");
-                return null;
-            }
-        }
-
-        private List<SceneItemDetails> GetSceneItems(string scene)
-        {
-            try
-            {
-                var items = obs.GetSceneItemList(scene);
-                return items;
-            }
-            catch (Exception error)
-            {
-                _logger.LogError(error, "Error requested items for OBS scene {scene}", scene);
-                return new();
-            }
         }
 
         private void Obs_InputNameChanged(object? sender, InputNameChangedEventArgs e)
@@ -213,7 +176,7 @@ namespace VlcObsService
 
         public void RefreshInputs()
         {
-            var inputNames = obs.GetInputList().Select(input => input.InputName);
+            var inputNames = repository.GetInputList().Select(input => input.InputName);
             inputs = new(inputNames.ToDictionary(name => name, GetInput));
         }
 
@@ -221,71 +184,10 @@ namespace VlcObsService
         {
             return new Input(name)
             {
-                Volume = GetInputVolume(name),
-                Muted = GetInputMute(name),
-                Settings = GetInputSettings(name)
+                Volume = repository.GetInputVolume(name),
+                Muted = repository.GetInputMute(name),
+                Settings = repository.GetInputSettings(name)
             };
-        }
-
-        private SourceSettings GetInputSettings(string inputName)
-        {
-            try
-            {
-                return obs.GetInputSettings(inputName).Settings.ToObject<SourceSettings>()
-                    ?? new SourceSettings();
-            }
-            catch (Exception error)
-            {
-                _logger.LogError(error, "Error requested playlist for OBS input {inputName}", inputName);
-                return new SourceSettings();
-            }
-        }
-
-        private float? GetInputVolume(string inputName)
-        {
-            try
-            {
-                return obs.GetInputVolume(inputName).VolumeMul;
-            }
-            catch (Exception error)
-            {
-                _logger.LogError(error, "Error requested playlist for OBS input {inputName}", inputName);
-                return null;
-            }
-        }
-
-        private bool? GetInputMute(string inputName)
-        {
-            try
-            {
-                return obs.GetInputMute(inputName);
-            }
-            catch (Exception error)
-            {
-                _logger.LogError(error, "Error requested playlist for OBS input {inputName}", inputName);
-                return null;
-            }
-        }
-
-        private class SourceSettings
-        {
-            [JsonProperty(PropertyName = "playlist")]
-            public List<PlaylistItem>? PlaylistItems { get; set; }
-
-            [JsonIgnore]
-            public List<string> ValidPlaylistItems 
-                => PlaylistItems
-                ?.Where(item => item.Value is not null)
-                .Select(item => item.Value!)
-                .ToList()
-                ?? new List<string>();
-
-        }
-
-        private class PlaylistItem
-        {
-            [JsonProperty(PropertyName = "value")]
-            public string? Value { get; set; }
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
