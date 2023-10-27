@@ -11,6 +11,7 @@ public class VlcInstance : IAsyncDisposable
     private readonly VlcService service;
     private readonly Process process;
     private bool closeWhenDisposed = true;
+    private int? lastVolumeSet = null;
 
     private CancellationTokenSource changesCts = new();
 
@@ -57,8 +58,9 @@ public class VlcInstance : IAsyncDisposable
         }
     }
 
-    public async Task PlayAsync(List<string> playlist)
+    public async Task PlayAsync(List<string> playlist, int volume)
     {
+        lastVolumeSet = volume;
         CancellationTokenSource cts = new();
         Interlocked.Exchange(ref changesCts, cts).Cancel();
 
@@ -83,7 +85,7 @@ public class VlcInstance : IAsyncDisposable
         if (status.State == "stopped")
             status = await service.Play(cts.Token);
 
-        await FadeTo(status, 256, 256, 2000, cts.Token);
+        await FadeTo(status, volume, volume, 2000, cts.Token);
     }
 
     public async Task EnqueuePlaylistAsync(List<string> requestedPlaylist, CancellationToken token)
@@ -139,14 +141,18 @@ public class VlcInstance : IAsyncDisposable
         if (status.State == "paused" || status.State == "stopped")
             return;
 
-        await FadeTo(status, 0, 256, 2000, cts.Token);
+        await FadeTo(status, 0, lastVolumeSet, 2000, cts.Token);
+
         await service.Next(cts.Token);
         await service.Stop(cts.Token);
     }
 
-    private async Task<Status> FadeTo(Status status, int targetVolume, int amplitude, int duration, CancellationToken token)
+    private async Task<Status> FadeTo(Status status, int targetVolume, int? amplitude, int duration, CancellationToken token)
     {
-        var interval = duration / amplitude;
+        if (amplitude is null or 0)
+            return await service.SetVolume(0, token);
+
+        var interval = duration / amplitude.Value;
 
         var originalVolume = status.Volume;
         var delta = targetVolume - originalVolume;

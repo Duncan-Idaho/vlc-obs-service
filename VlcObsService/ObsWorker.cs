@@ -3,9 +3,11 @@ using Newtonsoft.Json;
 using OBSWebsocketDotNet;
 using OBSWebsocketDotNet.Types;
 using OBSWebsocketDotNet.Types.Events;
+using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using VlcObsService.Obs;
 using VlcObsService.Vlc;
-using static System.Runtime.InteropServices.JavaScript.JSType;
+using static System.Formats.Asn1.AsnWriter;
 
 namespace VlcObsService
 {
@@ -17,9 +19,32 @@ namespace VlcObsService
 
         private readonly IOptionsMonitor<ObsWorkerOptions> optionsMonitor;
         private readonly IOptionsMonitor<ObsApplicationWebSocketOptions> obsOptionsMonitor;
-        private readonly IDisposable? optionsMonitorChangeToken;
 
-        private Dictionary<string, List<string>> playlistForScene = new();
+        private ConcurrentDictionary<string, Scene> scenes = new();
+        private ConcurrentDictionary<string, Input> inputs = new();
+        private string? currentSceneName = null;
+        private IReadOnlyList<Input> inputsInPlay = new List<Input>();
+
+        private record Scene(
+            string Name,
+            List<SceneItemDetails> Items,
+            ConcurrentDictionary<int, bool?> ItemsEnabled);
+
+        private record Input(string Name)
+        {
+            public float? Volume { get; set; }
+            public bool? Muted { get; set; }
+            public SourceSettings? Settings { get; set; }
+
+            public List<string>? ValidPlaylistItems
+                => Settings?.ValidPlaylistItems;
+
+            [MemberNotNullWhen(true, nameof(Volume), nameof(Muted), nameof(ValidPlaylistItems))]
+            public bool IsActive
+                => Volume > 0
+                && Muted == false
+                && ValidPlaylistItems is { Count: > 0 };
+        }
 
         public ObsWorker(
             ILogger<ObsWorker> logger, 
@@ -31,54 +56,97 @@ namespace VlcObsService
             obs.Connected += Obs_Connected;
             obs.Disconnected += Obs_Disconnected;
             obs.CurrentProgramSceneChanged += Obs_CurrentProgramSceneChanged;
+
+            obs.InputCreated += Obs_InputCreated;
+            obs.InputRemoved += Obs_InputRemoved;
+            obs.InputNameChanged += Obs_InputNameChanged;
+            obs.InputVolumeChanged += Obs_InputVolumeChanged;
+            obs.InputMuteStateChanged += Obs_InputMuteStateChanged;
+            obs.SceneItemEnableStateChanged += Obs_SceneItemEnableStateChanged;
+
             obs.SceneItemCreated += Obs_SceneItemCreated;
             obs.SceneItemRemoved += Obs_SceneItemRemoved;
+            obs.SceneListChanged += Obs_SceneListChanged;
 
             this.vlcWorker = vlcWorker;
             this.optionsMonitor = optionsMonitor;
             this.obsOptionsMonitor = obsOptionsMonitor;
-
-            this.optionsMonitorChangeToken = this.optionsMonitor.OnChange((_, _) =>
-            {
-                RefreshSceneItems();
-            });
         }
 
-        public override void Dispose()
+        private void Obs_SceneItemEnableStateChanged(object? sender, SceneItemEnableStateChangedEventArgs e)
         {
-            base.Dispose();
-            optionsMonitorChangeToken?.Dispose();
+            if (!scenes.TryGetValue(e.SceneName, out var scene))
+            {
+                _logger.LogWarning("Item enabled status of {inputName} from scene {scene} can't be updated because the scene was not sent by OBS", e.SceneName);
+                return;
+            }
+            scene.ItemsEnabled[e.SceneItemId] = e.SceneItemEnabled;
+            RecheckScene();
+        }
 
+        private void Obs_InputVolumeChanged(object? sender, InputVolumeChangedEventArgs e)
+        {
+            if (inputs.TryGetValue(e.Volume.InputName, out var input))
+                input.Volume = e.Volume.InputVolumeMul;
+            else
+                _logger.LogWarning("Volume of {inputName} can't be updated because the input was not sent by OBS", e.Volume.InputName);
+
+            HandleVolumeChange(e.Volume.InputName);
+        }
+
+        private void Obs_InputMuteStateChanged(object? sender, InputMuteStateChangedEventArgs e)
+        {
+            if (inputs.TryGetValue(e.InputName, out var input))
+                input.Muted = e.InputMuted;
+            else
+                _logger.LogWarning("Mute status of {inputName} can't be updated because the input was not sent by OBS", e.InputName);
+
+            RecheckScene();
+        }
+
+
+        private void Obs_InputCreated(object? sender, InputCreatedEventArgs e)
+        {
+            RefreshInput(e.InputName);
+        }
+
+        private void Obs_InputRemoved(object? sender, InputRemovedEventArgs e)
+        {
+            inputs.TryRemove(e.InputName, out _);
+            RecheckScene();
+        }
+
+        private void Obs_SceneItemRemoved(object? sender, SceneItemRemovedEventArgs e)
+        {
+            RefreshSceneItems();
+        }
+
+        private void Obs_SceneItemCreated(object? sender, SceneItemCreatedEventArgs e)
+        {
+            RefreshSceneItems();
+        }
+
+        private void Obs_SceneListChanged(object? sender, SceneListChangedEventArgs e)
+        {
+            RefreshSceneItems();
         }
 
         public void RefreshSceneItems()
         {
-            playlistForScene = optionsMonitor.CurrentValue.SourceKindsWithMusic switch
+            scenes = new(GetScenes().ToDictionary(scene => scene.Name, GetSceneInfo));
+
+            _logger.LogInformation("Scenes refreshed: {scenes}", string.Join(',', scenes.Values.Select(scene => scene.Name)));
+
+            Scene GetSceneInfo(SceneBasicInfo scene)
             {
-                { Count: > 0 } sourceKinds => GetMusicWitSourceKinds(sourceKinds),
-                _ => new()
-            };
-
-            var scenesWithMusic = playlistForScene.Where(pair => pair.Value.Count > 0).Select(pair => pair.Key);
-
-            _logger.LogInformation("Scenes with music source kinds refreshed: {scenes}", string.Join(',', scenesWithMusic));
-
-            Dictionary<string, List<string>> GetMusicWitSourceKinds(HashSet<string> sourceKinds)
-            {
-                return GetScenes()
-                    .Select(scene => scene.Name)
-                    .ToDictionary(
-                        sceneName => sceneName,
-                        sceneName => GetPlaylistFromScenes(sceneName, sourceKinds));
+                var items = GetSceneItems(scene.Name);
+                var itemsEnabled = items.ToDictionary(
+                    item => item.ItemId,
+                    item => GetSceneItemEnabled(scene.Name, item.ItemId));
+                return new(scene.Name, items, new(itemsEnabled));
             }
 
-            List<string> GetPlaylistFromScenes(string sceneName, HashSet<string> sourceKinds)
-                => GetSceneItems(sceneName)
-                    .Where(item => sourceKinds.Contains(item.SourceKind))
-                    .SelectMany(item => GetPlaylistFromInput(item.SourceName))
-                    .Select(playlist => playlist.Value)
-                    .Where(value => value is not null)
-                    .ToList()!;
+            RecheckScene();
         }
 
         private IEnumerable<SceneBasicInfo> GetScenes()
@@ -94,7 +162,20 @@ namespace VlcObsService
             }
         }
 
-        private IEnumerable<SceneItemDetails> GetSceneItems(string scene)
+        private bool? GetSceneItemEnabled(string sceneName, int itemId)
+        {
+            try
+            {
+                return obs.GetSceneItemEnabled(sceneName, itemId);
+            }
+            catch (Exception error)
+            {
+                _logger.LogError(error, "Error requesting scene list from OBS");
+                return null;
+            }
+        }
+
+        private List<SceneItemDetails> GetSceneItems(string scene)
         {
             try
             {
@@ -104,22 +185,101 @@ namespace VlcObsService
             catch (Exception error)
             {
                 _logger.LogError(error, "Error requested items for OBS scene {scene}", scene);
-                return Enumerable.Empty<SceneItemDetails>();
+                return new();
             }
         }
 
-        private IEnumerable<PlaylistItem> GetPlaylistFromInput(string inputName)
+        private void Obs_InputNameChanged(object? sender, InputNameChangedEventArgs e)
+        {
+            if (!inputs.TryRemove(e.OldInputName, out _))
+                return;
+
+            RefreshInput(e.InputName);
+        }
+
+        public void RefreshInput(string inputName)
+        {
+            inputs.AddOrUpdate(inputName,
+                GetInput,
+                (_, _) => GetInput(inputName));
+
+            RecheckScene();
+        }
+
+        public override void Dispose()
+        {
+            base.Dispose();
+        }
+
+        public void RefreshInputs()
+        {
+            var inputNames = obs.GetInputList().Select(input => input.InputName);
+            inputs = new(inputNames.ToDictionary(name => name, GetInput));
+        }
+
+        private Input GetInput(string name)
+        {
+            return new Input(name)
+            {
+                Volume = GetInputVolume(name),
+                Muted = GetInputMute(name),
+                Settings = GetInputSettings(name)
+            };
+        }
+
+        private SourceSettings GetInputSettings(string inputName)
         {
             try
             {
-                return obs.GetInputSettings(inputName).Settings["playlist"]?.ToObject<List<PlaylistItem>>()
-                    ?? new();
+                return obs.GetInputSettings(inputName).Settings.ToObject<SourceSettings>()
+                    ?? new SourceSettings();
             }
             catch (Exception error)
             {
                 _logger.LogError(error, "Error requested playlist for OBS input {inputName}", inputName);
-                return Enumerable.Empty<PlaylistItem>();
+                return new SourceSettings();
             }
+        }
+
+        private float? GetInputVolume(string inputName)
+        {
+            try
+            {
+                return obs.GetInputVolume(inputName).VolumeMul;
+            }
+            catch (Exception error)
+            {
+                _logger.LogError(error, "Error requested playlist for OBS input {inputName}", inputName);
+                return null;
+            }
+        }
+
+        private bool? GetInputMute(string inputName)
+        {
+            try
+            {
+                return obs.GetInputMute(inputName);
+            }
+            catch (Exception error)
+            {
+                _logger.LogError(error, "Error requested playlist for OBS input {inputName}", inputName);
+                return null;
+            }
+        }
+
+        private class SourceSettings
+        {
+            [JsonProperty(PropertyName = "playlist")]
+            public List<PlaylistItem>? PlaylistItems { get; set; }
+
+            [JsonIgnore]
+            public List<string> ValidPlaylistItems 
+                => PlaylistItems
+                ?.Where(item => item.Value is not null)
+                .Select(item => item.Value!)
+                .ToList()
+                ?? new List<string>();
+
         }
 
         private class PlaylistItem
@@ -180,27 +340,27 @@ namespace VlcObsService
         private void Obs_Connected(object? sender, EventArgs e)
         {
             _logger.LogInformation("Connected");
+            RefreshInputs();
             RefreshSceneItems();
             HandleScene(obs.GetCurrentProgramScene());
         }
 
-        private void Obs_SceneItemRemoved(object? sender, SceneItemRemovedEventArgs e)
+        private void RecheckScene()
         {
-            RefreshSceneItems();
-        }
-
-        private void Obs_SceneItemCreated(object? sender, SceneItemCreatedEventArgs e)
-        {
-            RefreshSceneItems();
+            if (currentSceneName is not null)
+                HandleScene(currentSceneName);
         }
 
         private void HandleScene(string scene)
         {
-            var playlist = GetPlaylistForScene(scene);
-            if (playlist is not null)
+            currentSceneName = scene;
+            var playAction = GetPlayActionForInput(scene)
+                ?? GetPlayActionForScene(scene);
+
+            if (playAction is not null)
             {
                 _logger.LogInformation("Scene {scene} requires playing", scene);
-                StartAndLogFailure(() => vlcWorker.PlayAsync(playlist), "playing");
+                StartAndLogFailure(() => vlcWorker.PlayAsync(playAction.Value.Playlist, playAction.Value.Volume), "playing");
             }
             else
             {
@@ -209,20 +369,83 @@ namespace VlcObsService
             }
         }
 
-        /// <summary>
-        /// Get the playlist for the scene
-        /// </summary>
-        /// <param name="scene">name of the scene</param>
-        /// <returns>null if no music, empty if music from config, list of music if music from OBS</returns>
-        private List<string>? GetPlaylistForScene(string scene)
+        private void HandleVolumeChange(string inputName)
         {
-            var scenes = optionsMonitor.CurrentValue.ScenesWithMusic;
-            if (scenes?.Count > 0)
-                return scenes.Contains(scene) ? new() : null;
+            var inputsInPlay = this.inputsInPlay;
+            if (!inputsInPlay.Any(input => input.Name == inputName))
+                return;
 
-            return playlistForScene.TryGetValue(scene, out var value) && value.Count > 0
-                ? value
+            var (playlist, volume) = GetPlayActionForInputsInPlay(inputsInPlay);
+            _logger.LogInformation("Volume change requested from input {inputName}", inputName);
+            
+            StartAndLogFailure(() => vlcWorker.PlayAsync(playlist, volume), "playing");
+        }
+
+        private (List<string> Playlist, int Volume)? GetPlayActionForScene(string scene)
+        {
+            var scenesWithMusic = optionsMonitor.CurrentValue.ScenesWithMusic;
+            if (scenesWithMusic is not { Count: > 0 })
+                return null;
+
+            return scenesWithMusic.Contains(scene)
+                ? (new(), 256)
                 : null;
+        }
+
+        private (List<string> Playlist, int Volume)? GetPlayActionForInput(string sceneName)
+        {
+            var sourceKindsWithMusic = optionsMonitor.CurrentValue.SourceKindsWithMusic;
+            if (sourceKindsWithMusic is not { Count: > 0 })
+                return null;
+
+            inputsInPlay = GetInputsForScene(sceneName)
+                .Where(item => item.SourceType == SceneItemSourceType.OBS_SOURCE_TYPE_INPUT)
+                .Where(input => sourceKindsWithMusic.Contains(input.SourceKind))
+                .Select(item => item.SourceName)
+                .Select(GetInputOrDefault)
+                .Where(input => input.IsActive)
+                .ToList();
+
+            if (inputsInPlay.Count == 0)
+                return null;
+
+            return GetPlayActionForInputsInPlay(inputsInPlay);
+
+            IEnumerable<SceneItemDetails> GetInputsForScene(string sceneName)
+            {
+                if (!scenes.TryGetValue(sceneName, out var scene))
+                {
+                    _logger.LogWarning("Scene {sceneName} was not received from OBS, yet it is now visible", sceneName);
+                    return Enumerable.Empty<SceneItemDetails>();
+                }
+
+                var inputsFromChildScenes = scene.Items
+                    .Where(item => item.SourceType == SceneItemSourceType.OBS_SOURCE_TYPE_SCENE)
+                    .SelectMany(input => GetInputsForScene(input.SourceName));
+
+                return scene.Items
+                    .Where(item => scene.ItemsEnabled.TryGetValue(item.ItemId, out var enabled) && enabled == true)
+                    .Concat(inputsFromChildScenes);
+            }
+
+            Input GetInputOrDefault(string inputName)
+            {
+                if (!inputs.TryGetValue(inputName, out var input))
+                {
+                    _logger.LogWarning("Input {inputName} was not received from OBS, yet its active state changed", inputName);
+                    return new Input(inputName);
+                }
+
+                return input;
+            }
+        }
+
+        private static (List<string> Playlist, int Volume) GetPlayActionForInputsInPlay(IReadOnlyList<Input> inputsInPlay)
+        {
+            var playlists = inputsInPlay.SelectMany(input => input.ValidPlaylistItems!).ToList();
+            var volume = (int)(inputsInPlay.Average(input => input.Volume)! * 256);
+
+            return (playlists, volume);
         }
 
         public async void StartAndLogFailure(Func<Task> task, string request)

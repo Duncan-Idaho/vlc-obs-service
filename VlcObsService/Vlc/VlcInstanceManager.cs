@@ -109,8 +109,8 @@ public class VlcInstanceManager: IAsyncDisposable
         }
     }
 
-    public async Task PlayAsync(List<string> playlist)
-        => await (await EnsureStartedAsync()).PlayAsync(playlist);
+    public async Task PlayAsync(List<string> playlist, int targetVolume)
+        => await (await EnsureStartedAsync()).PlayAsync(playlist, targetVolume);
 
     public async Task StopAsync()
     {
