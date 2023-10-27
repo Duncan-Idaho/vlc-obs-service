@@ -8,5 +8,6 @@
   </ItemGroup>
   <PropertyGroup>
    <InstallerPlatform>x64</InstallerPlatform>
+   <DefineConstants>Version=$(Version)</DefineConstants>
  </PropertyGroup>
 </Project>

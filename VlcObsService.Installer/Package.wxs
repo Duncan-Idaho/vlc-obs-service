@@ -1,13 +1,13 @@
-﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
     <Package Name="VLC-OBS Service" 
              Manufacturer="Duncan Idaho" 
-             Version="1.0.1.0" 
+             Version="$(var.Version)"
              UpgradeCode="810dcc07-eefa-48d2-b08a-469f5f9aaa49"
              Compressed="true">
         <MediaTemplate EmbedCab="yes" />
 
-        <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeError)"  />
+        <MajorUpgrade DowngradeErrorMessage="!(loc.DowngradeError)" />
 
         <Feature Id="ServiceFeature">
             <ComponentGroupRef Id="ServiceComponent"/>
