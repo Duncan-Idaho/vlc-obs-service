@@ -109,8 +109,16 @@ public class VlcInstanceManager: IAsyncDisposable
         }
     }
 
-    public async Task PlayAsync(List<string> playlist, int targetVolume)
-        => await (await EnsureStartedAsync()).PlayAsync(playlist, targetVolume);
+    public async Task PlayAsync(List<string> playlist, float targetVolumeInDb)
+    {
+        var targetVolumeInVlcSlider = (int)Math.Round(Math.Cbrt(Math.Pow(10.0, targetVolumeInDb / 20.0)) * 256.0);
+        this.logger.LogDebug("Requested volume of {targetVolumeInDb} dB meaning {targetVolumeInVlcSlider} for VLC API",
+            targetVolumeInDb,
+            targetVolumeInVlcSlider);
+
+
+        await (await EnsureStartedAsync()).PlayAsync(playlist, targetVolumeInVlcSlider);
+    }
 
     public async Task StopAsync()
     {

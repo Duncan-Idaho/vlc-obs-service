@@ -86,7 +86,7 @@ public class ObsRepository
     {
         try
         {
-            return obs.GetInputVolume(inputName).VolumeMul;
+            return obs.GetInputVolume(inputName).VolumeDb;
         }
         catch (Exception error)
         {

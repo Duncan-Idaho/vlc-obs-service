@@ -98,7 +98,7 @@ namespace VlcObsService
             if (playAction is not null)
             {
                 _logger.LogInformation("Scene {scene} requires playing", scene);
-                StartAndLogFailure(() => _vlc.PlayAsync(playAction.Value.Playlist, playAction.Value.Volume), "playing");
+                StartAndLogFailure(() => _vlc.PlayAsync(playAction.Value.Playlist, playAction.Value.VolumeDb), "playing");
             }
             else
             {
@@ -113,24 +113,24 @@ namespace VlcObsService
             if (!inputsInPlay.Any(input => input.Name == inputName))
                 return;
 
-            var (playlist, volume) = GetPlayActionForInputsInPlay(inputsInPlay);
+            var (playlist, volumeDb) = GetPlayActionForInputsInPlay(inputsInPlay);
             _logger.LogInformation("Volume change requested from input {inputName}", inputName);
             
-            StartAndLogFailure(() => _vlc.PlayAsync(playlist, volume), "playing");
+            StartAndLogFailure(() => _vlc.PlayAsync(playlist, volumeDb), "playing");
         }
 
-        private (List<string> Playlist, int Volume)? GetPlayActionForScene(string scene)
+        private (List<string> Playlist, float VolumeDb)? GetPlayActionForScene(string scene)
         {
             var scenesWithMusic = _optionsMonitor.CurrentValue.ScenesWithMusic;
             if (scenesWithMusic is not { Count: > 0 })
                 return null;
 
             return scenesWithMusic.Contains(scene)
-                ? (new(), 256)
+                ? (new(), 0)
                 : null;
         }
 
-        private (List<string> Playlist, int Volume)? GetPlayActionForInput(string sceneName)
+        private (List<string> Playlist, float VolumeDb)? GetPlayActionForInput(string sceneName)
         {
             var sourceKindsWithMusic = _optionsMonitor.CurrentValue.SourceKindsWithMusic;
             if (sourceKindsWithMusic is not { Count: > 0 })
@@ -178,12 +178,12 @@ namespace VlcObsService
                 .Concat(inputsFromChildScenes);
         }
 
-        private static (List<string> Playlist, int Volume) GetPlayActionForInputsInPlay(IReadOnlyList<Input> inputsInPlay)
+        private static (List<string> Playlist, float VolumeDb) GetPlayActionForInputsInPlay(IReadOnlyList<Input> inputsInPlay)
         {
             var playlists = inputsInPlay.SelectMany(input => input.ValidPlaylistItems!).ToList();
-            var volume = (int)(inputsInPlay.Average(input => input.Volume)! * 256);
+            var volumeDb = inputsInPlay.Average(input => input.VolumeDb) ?? 0;
 
-            return (playlists, volume);
+            return (playlists, volumeDb);
         }
 
         private void HandleDisconnected(object? sender, EventArgs e)

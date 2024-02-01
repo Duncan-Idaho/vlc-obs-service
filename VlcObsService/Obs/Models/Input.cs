@@ -5,16 +5,16 @@ namespace VlcObsService.Obs.Models;
 
 public record Input(string Name)
 {
-    public float? Volume { get; set; }
+    public float? VolumeDb { get; set; }
     public bool? Muted { get; set; }
     public SourceSettings? Settings { get; set; }
 
     public List<string>? ValidPlaylistItems
         => Settings?.ValidPlaylistItems;
 
-    [MemberNotNullWhen(true, nameof(Volume), nameof(Muted), nameof(ValidPlaylistItems))]
+    [MemberNotNullWhen(true, nameof(VolumeDb), nameof(Muted), nameof(ValidPlaylistItems))]
     public bool IsActive
-        => Volume > 0
+        => VolumeDb >= -60
         && Muted == false
         && ValidPlaylistItems is { Count: > 0 };
 }

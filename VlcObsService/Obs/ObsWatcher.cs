@@ -115,7 +115,7 @@ public sealed class ObsWatcher : IDisposable
     private void Obs_InputVolumeChanged(object? sender, InputVolumeChangedEventArgs e)
     {
         if (Inputs.TryGetValue(e.Volume.InputName, out var input))
-            input.Volume = e.Volume.InputVolumeMul;
+            input.VolumeDb = e.Volume.InputVolumeDb;
         else
             _logger.LogWarning("Volume of {inputName} can't be updated because the input was not sent by OBS", e.Volume.InputName);
 
@@ -214,7 +214,7 @@ public sealed class ObsWatcher : IDisposable
     {
         return new Input(name)
         {
-            Volume = _repository.GetInputVolume(name),
+            VolumeDb = _repository.GetInputVolume(name),
             Muted = _repository.GetInputMute(name),
             Settings = _repository.GetInputSettings(name)
         };
