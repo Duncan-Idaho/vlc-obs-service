@@ -24,6 +24,8 @@ public sealed class ObsWatcher : IDisposable
     public bool IsConnected => _obs.IsConnected;
     public TimeSpan WSTimeout => _obs.WSTimeout;
 
+    public HashSet<string> SourceKindsWithMusic { get; private set; } = new();
+
     public ObsWatcher(ILogger<ObsWatcher> logger, ILoggerFactory loggerFactory)
     {
         _logger = logger;
@@ -94,7 +96,9 @@ public sealed class ObsWatcher : IDisposable
     {
         if (!Scenes.TryGetValue(e.SceneName, out var scene))
         {
-            _logger.LogWarning("Item enabled status of {inputName} from scene {scene} can't be updated because the scene was not sent by OBS", e.SceneName);
+            _logger.LogWarning("Item enabled status of {inputName} from scene {scene} can't be updated because the scene was not sent by OBS",
+                e.SceneItemId,
+                e.SceneName);
             return;
         }
         scene.ItemsEnabled[e.SceneItemId] = e.SceneItemEnabled;
@@ -190,9 +194,19 @@ public sealed class ObsWatcher : IDisposable
         RecheckScene();
     }
 
+    public void UpdateSourceKindsWithMusic(HashSet<string> value)
+    {
+        SourceKindsWithMusic = new(value);
+        if (IsConnected)
+            RefreshInputs();
+    }
+
     public void RefreshInputs()
     {
-        var inputNames = _repository.GetInputList().Select(input => input.InputName);
+        var inputNames = SourceKindsWithMusic
+            .SelectMany(kind => _repository.GetInputList(kind))
+            .Select(input => input.InputName);
+
         Inputs = new(inputNames.ToDictionary(name => name, GetInput));
     }
 

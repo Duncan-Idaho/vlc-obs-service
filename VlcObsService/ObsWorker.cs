@@ -16,6 +16,7 @@ namespace VlcObsService
 
         private readonly IOptionsMonitor<ObsWorkerOptions> _optionsMonitor;
         private readonly IOptionsMonitor<ObsApplicationWebSocketOptions> _obsOptionsMonitor;
+        private readonly IDisposable? _optionsMonitorWatcher;
 
         private IReadOnlyList<Input> _inputsInPlay = new List<Input>();
 
@@ -36,6 +37,9 @@ namespace VlcObsService
             _vlc = vlc;
             _optionsMonitor = optionsMonitor;
             _obsOptionsMonitor = obsOptionsMonitor;
+
+            _optionsMonitorWatcher = _optionsMonitor.OnChange(value 
+                => _obs.UpdateSourceKindsWithMusic(value.SourceKindsWithMusic ?? new()));
         }
 
         public override void Dispose()
@@ -44,6 +48,7 @@ namespace VlcObsService
             _obs.RecheckSceneNeeded -= HandleScene;
             _obs.VolumeChanged -= HandleVolumeChange;
             _obs.Disconnected -= HandleDisconnected;
+            _optionsMonitorWatcher?.Dispose();
         }
 
         protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -62,6 +67,7 @@ namespace VlcObsService
 
                         if (url is not null && password is not null)
                         {
+                            _obs.UpdateSourceKindsWithMusic(options.SourceKindsWithMusic ?? new());
                             _obs.Connect(url, password);
                             _logger.LogInformation("Waiting for OBS...");
                         }

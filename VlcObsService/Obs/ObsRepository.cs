@@ -55,11 +55,11 @@ public class ObsRepository
         }
     }
 
-    public List<InputBasicInfo> GetInputList()
+    public List<InputBasicInfo> GetInputList(string? inputKind = null)
     {
         try
         {
-            return obs.GetInputList();
+            return obs.GetInputList(inputKind);
         }
         catch (Exception error)
         {
